@@ -1,5 +1,5 @@
 {
   "name": "virtual-office",
-  "main": "party/server.js",
+  "main": "server.js",
   "compatibilityDate": "2024-01-01"
 }

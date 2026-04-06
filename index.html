@@ -349,7 +349,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex
           </div>
         </div>
         <div class="auth-err" id="li-err"></div>
-        <button class="btn-main" id="li-btn">ENTRAR →</button>
+        <button class="btn-main" id="li-btn" onclick="doLogin()">ENTRAR →</button>
       </div>
 
       <!-- REGISTER PANEL -->
@@ -383,7 +383,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex
           <div style="font-size:10px;color:var(--muted);margin-top:6px;">Recuerda tu PIN — lo necesitarás cada vez que entres.</div>
         </div>
         <div class="auth-err" id="rg-err"></div>
-        <button class="btn-main" id="rg-btn">CREAR CUENTA →</button>
+        <button class="btn-main" id="rg-btn" onclick="doRegister()">CREAR CUENTA →</button>
       </div>
 
     </div>
@@ -658,9 +658,12 @@ function updateAvGrid(){
   document.getElementById('av-grid').querySelectorAll('canvas').forEach((c,i)=>{drawAv(c,AV_STYLES[i],36,PCOLS[selCol]);});
 }
 
+function getPin(rowId){
+  return [...document.querySelectorAll('#'+rowId+' .pin-d')].map(d=>d.value).join('');
+}
 function doLogin(){
   const user=document.getElementById('li-user').value.trim().toLowerCase();
-  const pin=liPin.getPin();
+  const pin=getPin('li-pin-row');
   const err=document.getElementById('li-err');
   if(!user){err.textContent='Escribe tu usuario';err.classList.add('show');return;}
   if(pin.length<4){err.textContent='Ingresa los 4 dígitos de tu PIN';err.classList.add('show');return;}
@@ -672,7 +675,7 @@ function doLogin(){
 function doRegister(){
   const user=document.getElementById('rg-user').value.trim().toLowerCase();
   const name=document.getElementById('rg-name').value.trim();
-  const pin=rgPin.getPin();
+  const pin=getPin('rg-pin-row');
   const err=document.getElementById('rg-err');
   if(!user||user.length<2){err.textContent='El usuario debe tener al menos 2 caracteres';err.classList.add('show');return;}
   if(!name){err.textContent='Escribe tu nombre visible';err.classList.add('show');return;}
@@ -716,7 +719,7 @@ function connectAndAuth(authMsg){
       const errId=authMsg.type==='login'?'li-err':'rg-err';
       const el=document.getElementById(errId);
       el.textContent=msg.message||'Error de autenticación';el.classList.add('show');
-      if(authMsg.type==='login')liPin.clear();
+      if(authMsg.type==='login'){[...document.querySelectorAll('#li-pin-row .pin-d')].forEach(d=>{d.value='';d.classList.remove('filled');});document.querySelector('#li-pin-row .pin-d').focus();}
     } else {
       handleWS(msg);
     }

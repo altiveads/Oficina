@@ -22,6 +22,9 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex
 ::-webkit-scrollbar-track{background:transparent;}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
 
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+@keyframes bounce{0%,100%{transform:scale(1);}50%{transform:scale(1.3);}}
+
 /* ═══ LOADING ═══ */
 #loading{position:fixed;inset:0;background:var(--bg);z-index:600;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;}
 #loading.hidden{display:none;}
@@ -647,6 +650,11 @@ function initAuthUI(){
   rgPin=initPin('rg-pin-row',null);
 
   document.getElementById('li-user').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('li-btn').click();});
+  document.getElementById('li-user').addEventListener('input',()=>{
+    const hint=document.getElementById('li-err');
+    hint.style.background='';hint.style.borderColor='';hint.style.color='';
+    hint.classList.remove('show');
+  });
   document.getElementById('li-btn').addEventListener('click',doLogin);
   document.getElementById('rg-btn').addEventListener('click',doRegister);
   document.getElementById('rg-user').addEventListener('input',e=>{
@@ -678,11 +686,46 @@ function doRegister(){
   const pin=getPin('rg-pin-row');
   const err=document.getElementById('rg-err');
   if(!user||user.length<2){err.textContent='El usuario debe tener al menos 2 caracteres';err.classList.add('show');return;}
+  if(!/^[a-z0-9._-]+$/.test(user)){err.textContent='Solo letras, números, puntos, guiones';err.classList.add('show');return;}
   if(!name){err.textContent='Escribe tu nombre visible';err.classList.add('show');return;}
   if(pin.length<4){err.textContent='Crea un PIN de 4 dígitos';err.classList.add('show');return;}
   err.classList.remove('show');
-  setLoading(true);
-  connectAndAuth({type:'register',username:user,name,avatarIdx:selAv,color:PCOLS[selCol],pin});
+  // Check if username already taken before full registration
+  checkUsernameAvailable(user, ()=>{
+    setLoading(true);
+    connectAndAuth({type:'register',username:user,name,avatarIdx:selAv,color:PCOLS[selCol],pin});
+  });
+}
+
+function checkUsernameAvailable(username, onAvailable){
+  const err=document.getElementById('rg-err');
+  const btn=document.getElementById('rg-btn');
+  btn.disabled=true;btn.textContent='Verificando…';
+  const probe=new WebSocket(WS_URL);
+  probe.onopen=()=>probe.send(JSON.stringify({type:'check_user',username}));
+  probe.onmessage=({data})=>{
+    const msg=JSON.parse(data);
+    probe.close();
+    btn.disabled=false;btn.textContent='CREAR CUENTA →';
+    if(msg.type==='user_exists'){
+      err.textContent='Ese usuario ya está en uso, elige otro';err.classList.add('show');
+      document.getElementById('rg-user').focus();
+      document.getElementById('rg-user').select();
+    } else {
+      err.classList.remove('show');
+      onAvailable();
+    }
+  };
+  probe.onerror=()=>{
+    probe.close();
+    btn.disabled=false;btn.textContent='CREAR CUENTA →';
+    // If can't check, proceed anyway (server will reject if duplicate)
+    onAvailable();
+  };
+  // Timeout fallback
+  setTimeout(()=>{
+    if(probe.readyState!==3){probe.close();btn.disabled=false;btn.textContent='CREAR CUENTA →';onAvailable();}
+  },4000);
 }
 
 // ══════════════════════════════════════════════
@@ -701,6 +744,35 @@ function setLoading(on){document.getElementById('loading').classList.toggle('hid
 // ══════════════════════════════════════════════
 // WEBSOCKET
 // ══════════════════════════════════════════════
+function showRegisterSuccess(profile){
+  // Hide auth, show success overlay
+  const overlay=document.createElement('div');
+  overlay.id='success-overlay';
+  overlay.style.cssText='position:fixed;inset:0;background:var(--bg);z-index:550;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:20px;';
+  overlay.innerHTML=`
+    <div style="font-family:var(--pixel);font-size:9px;color:var(--g);letter-spacing:3px;animation:fadeIn .4s ease">◈ CUENTA CREADA</div>
+    <div style="font-size:48px;animation:bounce .5s ease">🎉</div>
+    <div style="font-size:18px;font-weight:600;color:var(--text)">¡Bienvenido, <span style="color:var(--g)">${profile.name}</span>!</div>
+    <div style="font-size:13px;color:var(--muted2);text-align:center;max-width:300px;line-height:1.6">Tu cuenta fue creada con éxito.<br>Entrando a la oficina…</div>
+    <div style="width:200px;height:3px;background:var(--border2);border-radius:2px;overflow:hidden;margin-top:8px">
+      <div id="progress-bar" style="height:100%;background:var(--g);border-radius:2px;width:0%;transition:width 1.8s ease"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  // Animate progress bar
+  requestAnimationFrame(()=>{
+    setTimeout(()=>{
+      const bar=document.getElementById('progress-bar');
+      if(bar)bar.style.width='100%';
+    },50);
+  });
+  // Enter game after 2s
+  setTimeout(()=>{
+    overlay.remove();
+    startGame();
+  },2000);
+}
+
 function connectAndAuth(authMsg){
   if(ws){try{ws.close();}catch{}}
   ws=new WebSocket(WS_URL);
@@ -711,15 +783,27 @@ function connectAndAuth(authMsg){
       const p=msg.profile;
       myUsername=p.username;myName=p.name;myAvIdx=p.avatarIdx||0;myColor=p.color||PCOLS[0];
       myStatus=p.status||'available';myActivity=p.activity||'';
-      saveLS({username:p.username,name:p.name,avatarIdx:p.avatarIdx,color:p.color,status:p.status,activity:p.activity});
+      saveLS({username:p.username,name:p.name,avatarIdx:p.avatarIdx,color:p.color,status:p.status,activity:p.activity,pin:btoa(authMsg.pin||'')});
       document.getElementById('auth-screen').style.display='none';
-      startGame();
+      if(msg.isNew){
+        // Show success screen before entering
+        showRegisterSuccess(p);
+      } else {
+        startGame();
+      }
     } else if(msg.type==='auth_error'){
       setLoading(false);
       const errId=authMsg.type==='login'?'li-err':'rg-err';
       const el=document.getElementById(errId);
       el.textContent=msg.message||'Error de autenticación';el.classList.add('show');
-      if(authMsg.type==='login'){[...document.querySelectorAll('#li-pin-row .pin-d')].forEach(d=>{d.value='';d.classList.remove('filled');});document.querySelector('#li-pin-row .pin-d').focus();}
+      if(authMsg.type==='login'){
+        [...document.querySelectorAll('#li-pin-row .pin-d')].forEach(d=>{d.value='';d.classList.remove('filled');});
+        document.querySelector('#li-pin-row .pin-d').focus();
+      }
+      if(authMsg.type==='register'&&msg.message==='Ese usuario ya existe'){
+        document.getElementById('rg-user').focus();
+        document.getElementById('rg-user').select();
+      }
     } else {
       handleWS(msg);
     }
@@ -732,7 +816,7 @@ function reconnect(){
   if(!myUsername||!myId)return;
   const saved=loadLS();
   ws=new WebSocket(WS_URL);
-  ws.onopen=()=>ws.send(JSON.stringify({type:'login',username:myUsername,pin:saved?.pin||'0000'}));
+  ws.onopen=()=>ws.send(JSON.stringify({type:'login',username:myUsername,pin:saved?.pin?atob(saved.pin):'0000'}));
   ws.onmessage=({data})=>{
     const msg=JSON.parse(data);
     if(msg.type==='auth_ok'){
@@ -1204,6 +1288,13 @@ window.addEventListener('DOMContentLoaded',()=>{
   const saved=loadLS();
   if(saved?.username){
     document.getElementById('li-user').value=saved.username;
+    // Show a small "returning user" hint
+    const hint=document.getElementById('li-err');
+    hint.style.background='rgba(65,224,150,.08)';
+    hint.style.borderColor='rgba(65,224,150,.2)';
+    hint.style.color='var(--g)';
+    hint.textContent='Bienvenido de vuelta, '+saved.username+' — ingresa tu PIN';
+    hint.classList.add('show');
     setTimeout(()=>{
       const first=document.getElementById('li-pin-row').querySelector('.pin-d');
       if(first)first.focus();

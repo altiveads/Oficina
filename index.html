@@ -745,6 +745,7 @@ function setLoading(on){document.getElementById('loading').classList.toggle('hid
 // WEBSOCKET
 // ══════════════════════════════════════════════
 function showRegisterSuccess(profile){
+  setLoading(false);
   // Hide auth, show success overlay
   const overlay=document.createElement('div');
   overlay.id='success-overlay';
@@ -812,19 +813,44 @@ function connectAndAuth(authMsg){
   ws.onclose=()=>{if(myId)setTimeout(reconnect,3000);};
 }
 
+function showAuthScreen(){
+  myId=null;
+  document.getElementById('app').style.display='none';
+  document.getElementById('auth-screen').style.display='flex';
+  setLoading(false);
+  if(myUsername){
+    document.getElementById('li-user').value=myUsername;
+    const hint=document.getElementById('li-err');
+    hint.style.background='rgba(65,224,150,.08)';
+    hint.style.borderColor='rgba(65,224,150,.2)';
+    hint.style.color='var(--g)';
+    hint.textContent='Sesión expirada, vuelve a ingresar tu PIN';
+    hint.classList.add('show');
+    setTimeout(()=>{const first=document.getElementById('li-pin-row').querySelector('.pin-d');if(first)first.focus();},200);
+  }
+  myUsername='';
+}
+
 function reconnect(){
   if(!myUsername||!myId)return;
   const saved=loadLS();
+  const pin=saved?.pin?atob(saved.pin):null;
+  if(!pin){showAuthScreen();return;}
   ws=new WebSocket(WS_URL);
-  ws.onopen=()=>ws.send(JSON.stringify({type:'login',username:myUsername,pin:saved?.pin?atob(saved.pin):'0000'}));
+  ws.onopen=()=>ws.send(JSON.stringify({type:'login',username:myUsername,pin}));
   ws.onmessage=({data})=>{
     const msg=JSON.parse(data);
     if(msg.type==='auth_ok'){
       wsSend({type:'join',player:{id:myId,username:myUsername,name:myName,avatarIdx:myAvIdx,color:myColor,x:myX,y:myY,zone:myZone,activity:myActivity,status:myStatus}});
-    } else handleWS(msg);
+    } else if(msg.type==='auth_error'){
+      myId=null;
+      showAuthScreen();
+    } else {
+      handleWS(msg);
+    }
   };
   ws.onerror=()=>setTimeout(reconnect,3000);
-  ws.onclose=()=>setTimeout(reconnect,3000);
+  ws.onclose=()=>{if(myId)setTimeout(reconnect,3000);};
 }
 
 function handleWS(msg){
